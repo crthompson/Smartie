@@ -17,5 +17,6 @@ export type Attendee = {
     name: string,
     avatarUrl: string,
     satDown: boolean,
-    hasLinger: boolean
+    hasLinger: boolean,
+    excludeFromShuffle: boolean
 };

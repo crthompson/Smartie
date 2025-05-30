@@ -73,7 +73,7 @@ const PopupApp = () => {
         attendees = attendees.map(a => ({
             ...a,
             satDown: false,
-            hasLinger: false
+            hasLinger: false,
         }));
         chrome.storage.local.set({ attendees });
         sendMessage({ type: "ATTENDEES_UPDATED" });
@@ -112,7 +112,7 @@ const PopupApp = () => {
 
     return (
         <div className="container">
-            <h2>Jira Standup 👋</h2>
+            <h2>Smartie Standup</h2>
             <Checkbox checked={enabled} />
             <div className="controls">
                 <button className="button" onClick={handleOnShuffle}>Shuffle</button>

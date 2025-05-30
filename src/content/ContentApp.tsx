@@ -8,7 +8,7 @@ const ContentApp = () => {
     const [activeAttendeeId, setActiveAttendeeId] = useState<string>('');
 
     const clickAttendee = (attendeeId: string) => {
-        const checkbox = document.getElementById('assignee-' + attendeeId);
+        const checkbox = document.querySelector('[data-filter-id="' + attendeeId + '"]') as HTMLElement;
         if (checkbox) {
             checkbox.click();
         } else {
@@ -52,12 +52,12 @@ const ContentApp = () => {
     const shuffleAttendees = (attendeesToShuffle: Attendee[]) => {
         setShuffling(true);
         setTimeout(() => {
-            const temp = attendeesToShuffle.slice();
+            const temp = attendeesToShuffle.filter(a => !a.excludeFromShuffle).slice();
             for (let i = temp.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [temp[i], temp[j]] = [temp[j], temp[i]];
             }
-            storeAttendees(temp);
+            storeAttendees(temp.concat(attendeesToShuffle.filter(a => a.excludeFromShuffle)));
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
                     setShuffling(false);
@@ -80,6 +80,12 @@ const ContentApp = () => {
 
         storeAttendees(temp);
         document.querySelector<HTMLElement>('[data-testid="filters.ui.filters.clear-button.ak-button"] button')?.click();
+        let button = null
+        do {
+            button = document.querySelector<HTMLElement>('button.js-quickfilter-button[aria-pressed="true"], a.js-quickfilter-button[aria-pressed="true"]');
+            button?.click();
+        } while (button)
+        
         setActiveAttendeeId('');
     };
 
@@ -142,7 +148,8 @@ const ContentApp = () => {
                     name: "Unassigned",
                     avatarUrl: "https://via.placeholder.com/48x48",
                     satDown: false,
-                    hasLinger: false
+                    hasLinger: false,
+                    excludeFromShuffle: false
                 }];
                 await storeAttendees(storageAttendees);
             } else {
@@ -150,7 +157,7 @@ const ContentApp = () => {
             }
         })();
     }, []);
-
+    
     return (
         <div className={hidden ? "container hidden" : "container"}>
             <ul className={shuffling ? "group shuffling" : "group"}>{attendeesMarkup}</ul>

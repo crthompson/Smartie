@@ -71,21 +71,15 @@ const ContentApp = () => {
         await chrome.storage.local.set({ attendees: attendeesToStore });
     };
 
-    const clear = (attendeesToClear: Attendee[]) => {
+    const clear = async (attendeesToClear: Attendee[]) => {
         const temp = attendeesToClear.map(a => ({
             ...a,
             satDown: false,
             hasLinger: false
         }));
-
-        storeAttendees(temp);
-        document.querySelector<HTMLElement>('[data-testid="filters.ui.filters.clear-button.ak-button"] button')?.click();
-        let button = null
-        do {
-            button = document.querySelector<HTMLElement>('button.js-quickfilter-button[aria-pressed="true"], a.js-quickfilter-button[aria-pressed="true"]');
-            button?.click();
-        } while (button)
         
+        await storeAttendees(temp);        
+        document.querySelectorAll<HTMLElement>('button.js-quickfilter-button[aria-pressed="true"], a.js-quickfilter-button[aria-pressed="true"]').forEach(b => b.click());
         setActiveAttendeeId('');
     };
 
@@ -152,8 +146,19 @@ const ContentApp = () => {
                     excludeFromShuffle: false
                 }];
                 await storeAttendees(storageAttendees);
-            } else {
-                setAttendees(storageAttendees);
+            } else {                
+                setAttendees(storageAttendees);   
+                setTimeout(async () => {                    
+                    const temp: Attendee[] = storageAttendees.map((a: Attendee): Attendee => ({
+                        ...a,
+                        satDown: false,
+                        hasLinger: false
+                    }));
+                    shuffleAttendees(temp);                       
+                    document.querySelectorAll<HTMLElement>('button.js-quickfilter-button[aria-pressed="true"], a.js-quickfilter-button[aria-pressed="true"]').forEach(b => b.click());
+                    setAttendees(temp);   
+                    setActiveAttendeeId('');
+                }, 175);
             }
         })();
     }, []);

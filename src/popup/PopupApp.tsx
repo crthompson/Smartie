@@ -1,11 +1,19 @@
 import React, { useEffect, useState } from "react";
 import { Attendee, MessageTypes } from "../types";
 
-type CheckboxProps = {
+type EnabledProps = {
     checked: boolean
 };
 
-const Checkbox = (props: CheckboxProps) => {
+type Clearedprops = {
+    cleared: boolean
+};
+
+type Shuffledprops = {
+    shuffled: boolean
+};
+
+const Enabledbox = (props: EnabledProps) => {
     const [checked, setChecked] = useState(props.checked);
 
     useEffect(() => {
@@ -25,13 +33,59 @@ const Checkbox = (props: CheckboxProps) => {
     );
 };
 
+const Clearedbox = (props: Clearedprops) => {
+    const [cleared, setCleared] = useState(props.cleared);
+
+    useEffect(() => {
+        setCleared(props.cleared);
+    }, [props.cleared]);
+
+    const handleOnChange = () => {
+        chrome.storage.local.set({ cleared: !cleared });
+        setCleared(!cleared);
+    };
+
+    return (
+        <div className="clearedbox">
+            <input className="checkbox__input" type="checkbox" id="cleared" name="cleared" checked={cleared} onChange={handleOnChange} />
+            <label className="checkbox__label" htmlFor="cleared">Clear</label>
+        </div>
+    );
+};
+
+const Shuffledbox = (props: Shuffledprops) => {
+    const [shuffled, setShuffled] = useState(props.shuffled);
+
+    useEffect(() => {
+        setShuffled(props.shuffled);
+    }, [props.shuffled]);
+
+    const handleOnChange = () => {
+        chrome.storage.local.set({ shuffled: !shuffled });
+        setShuffled(!shuffled);
+    };
+
+    return (
+        <div className="shuffledbox">
+            <input className="checkbox__input" type="checkbox" id="shuffled" name="shuffled" checked={shuffled} onChange={handleOnChange} />
+            <label className="checkbox__label" htmlFor="shuffled">Shuffle</label>
+        </div>
+    );
+};
+
 const PopupApp = () => {
     const [enabled, setEnabled] = useState(false);
+    const [cleared, setCleared] = useState(false);
+    const [shuffled, setShuffled] = useState(false);
 
     useEffect(() => {
         (async () => {
             const result = await chrome.storage.local.get("enabled");
             setEnabled(!!result.enabled);
+            const cleared = await chrome.storage.local.get("cleared");
+            setCleared(!!cleared.cleared);
+            const shuffled = await chrome.storage.local.get("shuffled");
+            setShuffled(!!shuffled.shuffled);
         })();
     }, []);
 
@@ -113,7 +167,21 @@ const PopupApp = () => {
     return (
         <div className="container">
             <h2>Smartie Standup</h2>
-            <Checkbox checked={enabled} />
+            <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                    <div style={{ display: "flex", flexDirection: "row" }}>
+                        <span>On Refresh:</span></div>
+                    <div style={{ display: "flex", flexDirection: "row" }}>
+                        <Clearedbox cleared={cleared} />
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "row" }}>
+                        <Shuffledbox shuffled={shuffled} />
+                    </div>
+                </div> 
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                    <Enabledbox checked={enabled} />
+                </div> 
+            </div>
             <div className="controls">
                 <button className="button" onClick={handleOnShuffle}>Shuffle</button>
                 <button className="button" onClick={handleOnClear}>Clear</button>

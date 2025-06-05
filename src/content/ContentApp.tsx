@@ -132,6 +132,9 @@ const ContentApp = () => {
     useEffect(() => {
         (async () => {
             const enabledResult = await chrome.storage.local.get("enabled");
+            const shuffledResult = await chrome.storage.local.get("shuffled");
+            const clearedResult = await chrome.storage.local.get("cleared");
+             
             setHidden(!enabledResult.enabled);
 
             const attendeesResult = await chrome.storage.local.get("attendees");
@@ -148,14 +151,20 @@ const ContentApp = () => {
                 await storeAttendees(storageAttendees);
             } else {                
                 setAttendees(storageAttendees);   
-                setTimeout(async () => {                    
-                    const temp: Attendee[] = storageAttendees.map((a: Attendee): Attendee => ({
-                        ...a,
-                        satDown: false,
-                        hasLinger: false
-                    }));
-                    shuffleAttendees(temp);                       
-                    document.querySelectorAll<HTMLElement>('button.js-quickfilter-button[aria-pressed="true"], a.js-quickfilter-button[aria-pressed="true"]').forEach(b => b.click());
+                setTimeout(async () => {
+                    let temp = storageAttendees.map((a: Attendee): Attendee => ({
+                            ...a,
+                            satDown: clearedResult.cleared ? false : a.satDown,
+                            hasLinger: false
+                        }));
+                    if (shuffledResult.shuffled) {
+                        shuffleAttendees(temp);
+                    }
+                    if (clearedResult.cleared) {
+                        setTimeout(() => {
+                            document.querySelectorAll<HTMLElement>('button.js-quickfilter-button[aria-pressed="true"], a.js-quickfilter-button[aria-pressed="true"]').forEach(b => b.click());
+                        }, 100);
+                    }                   
                     setAttendees(temp);   
                     setActiveAttendeeId('');
                 }, 175);

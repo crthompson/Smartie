@@ -1,5 +1,5 @@
 {
-  "name": "jira-standup",
+  "name": "smartie-standup",
   "version": "1.0.0",
   "description": "React-based Chrome Extension to manage Jira Standups",
   "scripts": {

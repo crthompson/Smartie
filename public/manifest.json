@@ -14,7 +14,7 @@
     },
     "content_scripts": [
         {
-            "matches": ["https://*.waystar.com/*RapidBoard*"],
+            "matches": ["https://*/secure/RapidBoard.jspa*"],
             "js": ["content.js"]
         }
     ],

@@ -6,6 +6,7 @@ const ContentApp = () => {
     const [shuffling, setShuffling] = useState<boolean>(false);
     const [attendees, setAttendees] = useState<Attendee[]>([]);
     const [activeAttendeeId, setActiveAttendeeId] = useState<string>('');
+    const [selectedTeam, setSelectedTeam] = useState<string>("none");
 
     const clickAttendee = (attendeeId: string) => {
         const checkbox = document.querySelector('[data-filter-id="' + attendeeId + '"]') as HTMLElement;
@@ -109,16 +110,27 @@ const ContentApp = () => {
 
     useEffect(() => {
         const listener = async (message: MessageTypes) => {
+            const attendeesResult = await chrome.storage.local.get("attendees");
             switch (message.type) {
                 case "CLEAR":
-                    clear(attendees);
+                    await clear(attendees);
                     break;
                 case "SHUFFLE":
                     shuffleAttendees(attendees);
                     break;
                 case "ATTENDEES_UPDATED":
-                    const attendeesResult = await chrome.storage.local.get("attendees");
-                    setAttendees(attendeesResult.attendees);
+                    setAttendees(attendeesResult.attendees || []);
+                    break;
+                case "TEAM_CHANGED":
+                    const selectedTeam = await chrome.storage.local.get("selectedTeam");
+                    setSelectedTeam(selectedTeam.selectedTeam || "none");
+                    if (selectedTeam.selectedTeam || selectedTeam.selectedTeam.toLowerCase() === "all") {
+                        const filteredAttendees = attendeesResult.attendees
+                            ?.filter((a: Attendee) => a.team === selectedTeam.selectedTeam 
+                                                    || selectedTeam.selectedTeam.toLowerCase() === "all") || [];
+                        setAttendees(filteredAttendees);
+                    }
+                    break;
                 default:
                     break;
             }

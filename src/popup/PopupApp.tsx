@@ -13,6 +13,12 @@ type Shuffledprops = {
     shuffled: boolean
 };
 
+type SelectTeamProps = {
+    teams: string[];
+    selectedTeam: string;
+    onTeamChange: (team: string) => void;
+};
+
 const Enabledbox = (props: EnabledProps) => {
     const [checked, setChecked] = useState(props.checked);
 
@@ -73,10 +79,38 @@ const Shuffledbox = (props: Shuffledprops) => {
     );
 };
 
+const SelectTeam = ({ teams, selectedTeam, onTeamChange }: SelectTeamProps) => {
+    if (teams.length === 0 || (teams.length === 1 && !teams[0])) {
+        return null;
+    }
+    
+    const options = ["All", ...teams];
+
+    return (
+        <div className="select-team">
+            <label htmlFor="team">Select Team: </label>
+            <select
+                id="team"
+                name="team"
+                value={selectedTeam}
+                onChange={e => onTeamChange(e.target.value)}
+            >
+                {options.map(team => (
+                    <option key={team} value={team}>
+                        {team}
+                    </option>
+                ))}
+            </select>
+        </div>
+    );
+};
+
 const PopupApp = () => {
     const [enabled, setEnabled] = useState(false);
     const [cleared, setCleared] = useState(false);
     const [shuffled, setShuffled] = useState(false);
+    const [selectedTeam, setSelectedTeam] = useState<string>("");
+    const [teams, setTeams] = useState<string[]>([]);
 
     useEffect(() => {
         (async () => {
@@ -86,6 +120,10 @@ const PopupApp = () => {
             setCleared(!!cleared.cleared);
             const shuffled = await chrome.storage.local.get("shuffled");
             setShuffled(!!shuffled.shuffled);
+            const team = await chrome.storage.local.get("selectedTeam");
+            setSelectedTeam(team.selectedTeam);
+            const teams = await chrome.storage.local.get("teams");
+            setTeams(teams.teams || []);
         })();
     }, []);
 
@@ -102,6 +140,12 @@ const PopupApp = () => {
 
     const handleOnClear = () => {
         sendMessage({ type: "CLEAR" });
+    };
+
+    const handleTeamChange = (team: string) => {
+        setSelectedTeam(team);
+        chrome.storage.local.set({ selectedTeam: team });
+        sendMessage({ type: "TEAM_CHANGED" });
     };
 
     const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -128,8 +172,14 @@ const PopupApp = () => {
             ...a,
             satDown: false,
             hasLinger: false,
+            team: a.team
         }));
         chrome.storage.local.set({ attendees });
+        const teams: string[] = [...new Set((attendees as Attendee[])
+                                    .filter((a: Attendee) => a.team !== null && a.team !== undefined || a.team !== "")           
+                                    .map((a: Attendee) => a.team!))];
+        setTeams(teams);
+        chrome.storage.local.set({ teams });
         sendMessage({ type: "ATTENDEES_UPDATED" });
     };
 
@@ -147,7 +197,9 @@ const PopupApp = () => {
         const attendees: Attendee[] = attendeesResult.attendees.map((a: Attendee) => ({
             id: a.id,
             name: a.name,
-            avatarUrl: a.avatarUrl
+            avatarUrl: a.avatarUrl,
+            excludeFromShuffle: a.excludeFromShuffle || "false",
+            team: a.team || ""
         }));
         const content = JSON.stringify(attendees, null, 2);
         const blob = new Blob([content], {
@@ -181,6 +233,13 @@ const PopupApp = () => {
                 <div style={{ display: "flex", flexDirection: "column" }}>
                     <Enabledbox checked={enabled} />
                 </div> 
+            </div>
+            <div className="teamDropDown">
+                <SelectTeam
+                    teams={teams}
+                    selectedTeam={selectedTeam}
+                    onTeamChange={handleTeamChange}
+                />
             </div>
             <div className="controls">
                 <button className="button" onClick={handleOnShuffle}>Shuffle</button>

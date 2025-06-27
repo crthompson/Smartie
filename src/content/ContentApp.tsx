@@ -68,7 +68,11 @@ const ContentApp = () => {
     };
 
     const storeAttendees = async (attendeesToStore: Attendee[]) => {
-        setAttendees(attendeesToStore);
+        const selectedTeam = await chrome.storage.local.get("selectedTeam");
+        const filteredAttendees = attendeesToStore
+            ?.filter((a: Attendee) => a.team === selectedTeam.selectedTeam 
+                                    || selectedTeam.selectedTeam.toLowerCase() === "all") || [];
+        setAttendees(filteredAttendees);
         await chrome.storage.local.set({ attendees: attendeesToStore });
     };
 
@@ -146,6 +150,7 @@ const ContentApp = () => {
             const enabledResult = await chrome.storage.local.get("enabled");
             const shuffledResult = await chrome.storage.local.get("shuffled");
             const clearedResult = await chrome.storage.local.get("cleared");
+            const selectedTeamResult = await chrome.storage.local.get("selectedTeam");
              
             setHidden(!enabledResult.enabled);
 
@@ -158,11 +163,15 @@ const ContentApp = () => {
                     avatarUrl: "https://via.placeholder.com/48x48",
                     satDown: false,
                     hasLinger: false,
-                    excludeFromShuffle: false
+                    excludeFromShuffle: false,
+                    team: ""
                 }];
                 await storeAttendees(storageAttendees);
-            } else {                
-                setAttendees(storageAttendees);   
+            } else {
+                const filteredAttendees = attendeesResult.attendees
+                    ?.filter((a: Attendee) => a.team === selectedTeamResult.selectedTeam
+                                            || selectedTeamResult.selectedTeam.toLowerCase() === "all") || [];
+                setAttendees(filteredAttendees);   
                 setTimeout(async () => {
                     let temp = storageAttendees.map((a: Attendee): Attendee => ({
                             ...a,
@@ -177,7 +186,7 @@ const ContentApp = () => {
                             document.querySelectorAll<HTMLElement>('button.js-quickfilter-button[aria-pressed="true"], a.js-quickfilter-button[aria-pressed="true"]').forEach(b => b.click());
                         }, 100);
                     }                   
-                    setAttendees(temp);   
+                    setAttendees(filteredAttendees);   
                     setActiveAttendeeId('');
                 }, 175);
             }

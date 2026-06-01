@@ -6,6 +6,7 @@ const ContentApp = () => {
     const [shuffling, setShuffling] = useState<boolean>(false);
     const [attendees, setAttendees] = useState<Attendee[]>([]);
     const [activeAttendeeId, setActiveAttendeeId] = useState<string>('');
+    const [selectedTeam, setSelectedTeam] = useState<string>("none");
 
     const clickAttendee = (attendeeId: string) => {
         const checkbox = document.getElementById('assignee-' + attendeeId);
@@ -52,12 +53,12 @@ const ContentApp = () => {
     const shuffleAttendees = (attendeesToShuffle: Attendee[]) => {
         setShuffling(true);
         setTimeout(() => {
-            const temp = attendeesToShuffle.slice();
+            const temp = attendeesToShuffle.filter(a => !a.excludeFromShuffle).slice();
             for (let i = temp.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [temp[i], temp[j]] = [temp[j], temp[i]];
             }
-            storeAttendees(temp);
+            storeAttendees(temp.concat(attendeesToShuffle.filter(a => a.excludeFromShuffle)));
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
                     setShuffling(false);
@@ -67,18 +68,22 @@ const ContentApp = () => {
     };
 
     const storeAttendees = async (attendeesToStore: Attendee[]) => {
-        setAttendees(attendeesToStore);
+        const selectedTeam = await chrome.storage.local.get("selectedTeam");
+        const filteredAttendees = attendeesToStore
+            ?.filter((a: Attendee) => a.team === selectedTeam.selectedTeam 
+                                    || selectedTeam.selectedTeam.toLowerCase() === "all") || [];
+        setAttendees(filteredAttendees);
         await chrome.storage.local.set({ attendees: attendeesToStore });
     };
 
-    const clear = (attendeesToClear: Attendee[]) => {
+    const clear = async (attendeesToClear: Attendee[]) => {
         const temp = attendeesToClear.map(a => ({
             ...a,
             satDown: false,
             hasLinger: false
         }));
-
-        storeAttendees(temp);
+        
+        await storeAttendees(temp);        
         document.querySelector<HTMLElement>('[data-testid="filters.ui.filters.clear-button.ak-button"] button')?.click();
         setActiveAttendeeId('');
     };
@@ -109,16 +114,27 @@ const ContentApp = () => {
 
     useEffect(() => {
         const listener = async (message: MessageTypes) => {
+            const attendeesResult = await chrome.storage.local.get("attendees");
             switch (message.type) {
                 case "CLEAR":
-                    clear(attendees);
+                    await clear(attendees);
                     break;
                 case "SHUFFLE":
                     shuffleAttendees(attendees);
                     break;
                 case "ATTENDEES_UPDATED":
-                    const attendeesResult = await chrome.storage.local.get("attendees");
-                    setAttendees(attendeesResult.attendees);
+                    setAttendees(attendeesResult.attendees || []);
+                    break;
+                case "TEAM_CHANGED":
+                    const selectedTeam = await chrome.storage.local.get("selectedTeam");
+                    setSelectedTeam(selectedTeam.selectedTeam || "none");
+                    if (selectedTeam.selectedTeam || selectedTeam.selectedTeam.toLowerCase() === "all") {
+                        const filteredAttendees = attendeesResult.attendees
+                            ?.filter((a: Attendee) => a.team === selectedTeam.selectedTeam 
+                                                    || selectedTeam.selectedTeam.toLowerCase() === "all") || [];
+                        setAttendees(filteredAttendees);
+                    }
+                    break;
                 default:
                     break;
             }
@@ -132,6 +148,10 @@ const ContentApp = () => {
     useEffect(() => {
         (async () => {
             const enabledResult = await chrome.storage.local.get("enabled");
+            const shuffledResult = await chrome.storage.local.get("shuffled");
+            const clearedResult = await chrome.storage.local.get("cleared");
+            const selectedTeamResult = await chrome.storage.local.get("selectedTeam");
+             
             setHidden(!enabledResult.enabled);
 
             const attendeesResult = await chrome.storage.local.get("attendees");
@@ -142,15 +162,37 @@ const ContentApp = () => {
                     name: "Unassigned",
                     avatarUrl: "https://via.placeholder.com/48x48",
                     satDown: false,
-                    hasLinger: false
+                    hasLinger: false,
+                    excludeFromShuffle: false,
+                    team: ""
                 }];
                 await storeAttendees(storageAttendees);
             } else {
-                setAttendees(storageAttendees);
+                const filteredAttendees = attendeesResult.attendees
+                    ?.filter((a: Attendee) => a.team === selectedTeamResult.selectedTeam
+                                            || selectedTeamResult.selectedTeam.toLowerCase() === "all") || [];
+                setAttendees(filteredAttendees);   
+                setTimeout(async () => {
+                    let temp = storageAttendees.map((a: Attendee): Attendee => ({
+                            ...a,
+                            satDown: clearedResult.cleared ? false : a.satDown,
+                            hasLinger: false
+                        }));
+                    if (shuffledResult.shuffled) {
+                        shuffleAttendees(temp);
+                    }
+                    if (clearedResult.cleared) {
+                        setTimeout(() => {
+                            document.querySelector<HTMLElement>('[data-testid="filters.ui.filters.clear-button.ak-button"] button')?.click();
+                        }, 100);
+                    }                   
+                    setAttendees(filteredAttendees);   
+                    setActiveAttendeeId('');
+                }, 175);
             }
         })();
     }, []);
-
+    
     return (
         <div className={hidden ? "container hidden" : "container"}>
             <ul className={shuffling ? "group shuffling" : "group"}>{attendeesMarkup}</ul>

@@ -1,14 +1,20 @@
 {
-    "name": "Jira Standup",
+    "name": "Smartie Standup",
     "description": "Chrome Extension for running standup within Jira!",
     "manifest_version": 3,
     "version": "1.0.0",
+    "icons": {
+      "16": "smartie-16.png",
+      "32": "smartie-32.png",
+      "64": "smartie-64.png",
+      "128": "smartie-128.png"
+    },
     "action": {
         "default_popup": "popup.html"
     },
     "content_scripts": [
         {
-            "matches": ["https://*.atlassian.net/jira/software/c/projects/*/boards/*"],
+            "matches": ["https://*.atlassian.net/jira/software/*/boards/*"],
             "js": ["content.js"]
         }
     ],

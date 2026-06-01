@@ -10,12 +10,18 @@ interface AttendeesUpdated {
     type: "ATTENDEES_UPDATED"
 }
 
-export type MessageTypes = Clear | Shuffle | AttendeesUpdated;
+interface TeamChanged {
+    type: "TEAM_CHANGED"
+}
+
+export type MessageTypes = Clear | Shuffle | AttendeesUpdated | TeamChanged;
 
 export type Attendee = {
     id: string,
     name: string,
     avatarUrl: string,
     satDown: boolean,
-    hasLinger: boolean
+    hasLinger: boolean,
+    excludeFromShuffle: boolean,
+    team?: string
 };

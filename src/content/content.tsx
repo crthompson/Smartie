@@ -1,30 +1,55 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import ContentApp from "./ContentApp";
-import { waitForElement } from "../utils";
 import "./content.css";
 
 (async () => {
-    try {
-        const isOldJiraVersion = document.body.classList.contains('ghx-agile');
-        const controls = isOldJiraVersion ? await waitForElement("#ghx-controls", 5000) : await waitForElement(`[data-testid="software-board.header.controls-bar"]`, 5000);
-        if (controls) {
-            const rootElement = document.createElement("div");
-            rootElement.id = "jira-standup";
-            if (isOldJiraVersion) {
-                controls.appendChild(rootElement);
-            } else {
-                controls.insertAdjacentElement("afterend", rootElement);
-            }
+    let root: ReactDOM.Root | null = null;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-            const root = ReactDOM.createRoot(rootElement);
-            root.render(
-                <React.StrictMode>
-                    <ContentApp />
-                </React.StrictMode>
-            );
+    const inject = (controls: Element) => {
+        if (document.getElementById("jira-standup")) {
+            return;
         }
+        const rootElement = document.createElement("div");
+        rootElement.id = "jira-standup";
+        controls.insertAdjacentElement("afterend", rootElement);
+        root = ReactDOM.createRoot(rootElement);
+        root.render(
+            <React.StrictMode>
+                <ContentApp />
+            </React.StrictMode>
+        );
+    };
+
+    const scheduleInject = () => {
+        if (debounceTimer) {
+            clearTimeout(debounceTimer);
+        }
+        debounceTimer = setTimeout(() => {
+            const controlsSelector = `[data-testid="software-board.header.controls-bar"]`;
+            if (!document.getElementById("jira-standup")) {
+                const controls = document.querySelector(controlsSelector);
+                if (controls) {
+                    inject(controls);
+                }
+            }
+        }, 500);
+    };
+
+    try {
+        const observer = new MutationObserver(() => {
+            scheduleInject();
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        // Initial check in case the board is already rendered
+        scheduleInject();
     } catch (e) {
-        console.error(`Jira Standup Chrome Extension: Unable to load: ${e}`)
+        console.error(`Smartie Standup Chrome Extension: Unable to load: ${e}`)
     }
 })();

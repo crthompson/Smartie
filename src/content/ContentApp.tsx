@@ -9,13 +9,29 @@ const ContentApp = () => {
     const [selectedTeam, setSelectedTeam] = useState<string>("none");
 
     const clickAttendee = (attendeeId: string) => {
-        const checkbox = document.getElementById('assignee-' + attendeeId);
-        if (checkbox) {
-            checkbox.click();
+        if (!attendeeId) return;
+        const label = document.querySelector(`label[for="assignee-${attendeeId}"]`) as HTMLElement;
+        if (label) {
+            label.click();
         } else {
-            document.getElementById('assignee-show-more')?.click();
-            document.getElementById(attendeeId)?.click();
-            document.getElementById('assignee-show-more')?.click();
+            const showMore = document.querySelector('[data-testid="filters.ui.filters.assignee.stateless.show-more-button.assignee-filter-show-more"]') as HTMLElement;
+            if (showMore) {
+                showMore.click();
+                const observer = new MutationObserver(() => {
+                    const item = document.getElementById(attendeeId) as HTMLElement;
+                    if (item) {
+                        observer.disconnect();
+                        item.click();
+                        showMore.click();
+                    } else if (document.querySelector('[role="menuitemcheckbox"]')) {
+                        // Dropdown rendered but attendee not in it — close menu
+                        observer.disconnect();
+                        showMore.click();
+                    }
+                });
+                observer.observe(document.body, { childList: true, subtree: true });
+                setTimeout(() => observer.disconnect(), 3000);
+            }
         }
     };
 
@@ -69,9 +85,10 @@ const ContentApp = () => {
 
     const storeAttendees = async (attendeesToStore: Attendee[]) => {
         const selectedTeam = await chrome.storage.local.get("selectedTeam");
+        const teamValue = selectedTeam.selectedTeam || "all";
         const filteredAttendees = attendeesToStore
-            ?.filter((a: Attendee) => a.team === selectedTeam.selectedTeam 
-                                    || selectedTeam.selectedTeam.toLowerCase() === "all") || [];
+            ?.filter((a: Attendee) => a.team === teamValue 
+                                    || teamValue.toLowerCase() === "all") || [];
         setAttendees(filteredAttendees);
         await chrome.storage.local.set({ attendees: attendeesToStore });
     };
@@ -127,13 +144,12 @@ const ContentApp = () => {
                     break;
                 case "TEAM_CHANGED":
                     const selectedTeam = await chrome.storage.local.get("selectedTeam");
-                    setSelectedTeam(selectedTeam.selectedTeam || "none");
-                    if (selectedTeam.selectedTeam || selectedTeam.selectedTeam.toLowerCase() === "all") {
-                        const filteredAttendees = attendeesResult.attendees
-                            ?.filter((a: Attendee) => a.team === selectedTeam.selectedTeam 
-                                                    || selectedTeam.selectedTeam.toLowerCase() === "all") || [];
-                        setAttendees(filteredAttendees);
-                    }
+                    const teamVal = selectedTeam.selectedTeam || "all";
+                    setSelectedTeam(teamVal);
+                    const filteredByTeam = attendeesResult.attendees
+                        ?.filter((a: Attendee) => a.team === teamVal 
+                                                || teamVal.toLowerCase() === "all") || [];
+                    setAttendees(filteredByTeam);
                     break;
                 default:
                     break;
@@ -151,6 +167,7 @@ const ContentApp = () => {
             const shuffledResult = await chrome.storage.local.get("shuffled");
             const clearedResult = await chrome.storage.local.get("cleared");
             const selectedTeamResult = await chrome.storage.local.get("selectedTeam");
+            const initTeam = selectedTeamResult.selectedTeam || "all";
              
             setHidden(!enabledResult.enabled);
 
@@ -169,8 +186,8 @@ const ContentApp = () => {
                 await storeAttendees(storageAttendees);
             } else {
                 const filteredAttendees = attendeesResult.attendees
-                    ?.filter((a: Attendee) => a.team === selectedTeamResult.selectedTeam
-                                            || selectedTeamResult.selectedTeam.toLowerCase() === "all") || [];
+                    ?.filter((a: Attendee) => a.team === initTeam
+                                            || initTeam.toLowerCase() === "all") || [];
                 setAttendees(filteredAttendees);   
                 setTimeout(async () => {
                     let temp = storageAttendees.map((a: Attendee): Attendee => ({
@@ -185,7 +202,7 @@ const ContentApp = () => {
                         setTimeout(() => {
                             document.querySelector<HTMLElement>('[data-testid="filters.ui.filters.clear-button.ak-button"] button')?.click();
                         }, 100);
-                    }                   
+                    }
                     setAttendees(filteredAttendees);   
                     setActiveAttendeeId('');
                 }, 175);

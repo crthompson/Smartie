@@ -1,0 +1,69 @@
+{
+  "boardMappings": {
+    "Snowbird": "/boards/301"
+  },
+  "attendees": [
+  {
+    "id": "635ff47d7d4645af4f033e1b",
+    "name": "Miles",
+    "avatarUrl": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/635ff47d7d4645af4f033e1b/3017dfd3-2b44-4725-aeba-628c2cd10619/48",
+    "team": "Snowbird"
+  },
+  {
+    "id": "712020:03c204b6-77dd-4d8b-88aa-ea12823a3844",
+    "name": "Chad",
+    "avatarUrl": "https://i0.wp.com/avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/CT-0.png?ssl=1",
+    "team": "Snowbird"
+  },
+  {
+    "id": "712020:0c91d928-d6d5-40f5-a787-0bcab14e2dc4",
+    "name": "Nicole",
+    "avatarUrl": "https://i0.wp.com/avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/NP-4.png?ssl=1",
+    "team": "Snowbird"
+  },
+  {
+    "id": "712020:2accc3d8-88d9-43db-9e6f-659ca8e03c89",
+    "name": "Kyle",
+    "avatarUrl": "https://i0.wp.com/avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/KS-5.png?ssl=1",
+    "team": "Snowbird"
+  },
+  {
+    "id": "712020:08ece1be-b3eb-4aef-8d31-da8e0e8f37ae",
+    "name": "Tyler",
+    "avatarUrl": "https://i0.wp.com/avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/TT-6.png?ssl=1",
+    "team": "Snowbird"
+  },
+  {
+    "id": "712020:4cd51967-b037-48a8-8882-495c5e17e91e",
+    "name": "Timothy",
+    "avatarUrl": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/712020:4cd51967-b037-48a8-8882-495c5e17e91e/9d9f9956-d17f-47c4-ab50-2a0d97b2ee5d/48",
+    "team": "Snowbird"
+  },
+  {
+    "id": "712020:c0c83d64-8268-4437-b119-0b2806a23170",
+    "name": "Emad",
+    "avatarUrl": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/712020:c0c83d64-8268-4437-b119-0b2806a23170/f0bd5167-1042-41ae-8b23-e98801428f97/48",
+    "excludeFromShuffle": true,
+    "team": "Snowbird"
+  },
+  {
+    "id": "712020:bafe3fe2-d383-4f58-ae27-7e725de9d39b",
+    "name": "Cate",
+    "avatarUrl": "https://i0.wp.com/avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/CK-6.png?ssl=1",
+    "excludeFromShuffle": true,
+    "team": "Snowbird"
+  },
+  {
+    "id": "712020:f85fa0bc-48b6-46fd-a578-980b9d2d7f0d",
+    "name": "Steven",
+    "avatarUrl": "https://i0.wp.com/avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/SA-4.png?ssl=1",
+    "excludeFromShuffle": true,
+    "team": "Snowbird"
+  },
+  {
+    "id": "712020:64e46e4b-5c2d-43be-9145-525e9bcecd49",
+    "name": "Ben",
+    "avatarUrl": "https://i0.wp.com/avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/BL-3.png?ssl=1",
+    "team": "Snowbird"
+  }]
+}

@@ -1,5 +1,40 @@
 import React, { useEffect, useState } from "react";
-import { Attendee, MessageTypes } from "../types";
+import { Attendee, MessageTypes, isOnTeam, getTeams } from "../types";
+
+const syncAvatarsFromDOM = async () => {
+    const attendeesResult = await chrome.storage.local.get("attendees");
+    const storedAttendees: Attendee[] = attendeesResult.attendees;
+    if (!storedAttendees || storedAttendees.length === 0) return;
+
+    let updated = false;
+    const avatarMap = new Map<string, string>();
+
+    // Scrape visible filter bar avatars
+    document.querySelectorAll('label[data-testid="filters.ui.filters.assignee.stateless.avatar.assignee-filter-avatar"]').forEach(label => {
+        const forAttr = label.getAttribute('for');
+        if (forAttr && forAttr.startsWith('assignee-')) {
+            const accountId = forAttr.replace('assignee-', '');
+            const img = label.querySelector('img') as HTMLImageElement;
+            if (img && img.src) {
+                avatarMap.set(accountId, img.src);
+            }
+        }
+    });
+
+    // Update stored attendees with fresh avatar URLs
+    const updatedAttendees = storedAttendees.map(a => {
+        const freshUrl = avatarMap.get(a.id);
+        if (freshUrl && freshUrl !== a.avatarUrl) {
+            updated = true;
+            return { ...a, avatarUrl: freshUrl };
+        }
+        return a;
+    });
+
+    if (updated) {
+        await chrome.storage.local.set({ attendees: updatedAttendees });
+    }
+};
 
 const ContentApp = () => {
     const [hidden, setHidden] = useState(true);
@@ -66,15 +101,18 @@ const ContentApp = () => {
         storeAttendees(temp);
     };
 
-    const shuffleAttendees = (attendeesToShuffle: Attendee[]) => {
+    const shuffleAttendees = async (_ignored?: Attendee[]) => {
         setShuffling(true);
-        setTimeout(() => {
-            const temp = attendeesToShuffle.filter(a => !a.excludeFromShuffle).slice();
+        // Always operate on the FULL list from storage, never the filtered in-memory view
+        const full = await chrome.storage.local.get("attendees");
+        const fullList: Attendee[] = full.attendees || [];
+        setTimeout(async () => {
+            const temp = fullList.filter(a => !a.excludeFromShuffle).slice();
             for (let i = temp.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [temp[i], temp[j]] = [temp[j], temp[i]];
             }
-            storeAttendees(temp.concat(attendeesToShuffle.filter(a => a.excludeFromShuffle)));
+            await storeAttendees(temp.concat(fullList.filter(a => a.excludeFromShuffle)));
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
                     setShuffling(false);
@@ -83,18 +121,20 @@ const ContentApp = () => {
         }, 175);
     };
 
-    const storeAttendees = async (attendeesToStore: Attendee[]) => {
+    const storeAttendees = async (fullAttendees: Attendee[]) => {
         const selectedTeam = await chrome.storage.local.get("selectedTeam");
         const teamValue = selectedTeam.selectedTeam || "all";
-        const filteredAttendees = attendeesToStore
-            ?.filter((a: Attendee) => a.team === teamValue 
-                                    || teamValue.toLowerCase() === "all") || [];
+        const filteredAttendees = fullAttendees
+            ?.filter((a: Attendee) => isOnTeam(a, teamValue)) || [];
         setAttendees(filteredAttendees);
-        await chrome.storage.local.set({ attendees: attendeesToStore });
+        await chrome.storage.local.set({ attendees: fullAttendees });
     };
 
-    const clear = async (attendeesToClear: Attendee[]) => {
-        const temp = attendeesToClear.map(a => ({
+    const clear = async (_ignored?: Attendee[]) => {
+        // Always operate on the FULL list from storage
+        const full = await chrome.storage.local.get("attendees");
+        const fullList: Attendee[] = full.attendees || [];
+        const temp = fullList.map(a => ({
             ...a,
             satDown: false,
             hasLinger: false
@@ -134,10 +174,10 @@ const ContentApp = () => {
             const attendeesResult = await chrome.storage.local.get("attendees");
             switch (message.type) {
                 case "CLEAR":
-                    await clear(attendees);
+                    await clear();
                     break;
                 case "SHUFFLE":
-                    shuffleAttendees(attendees);
+                    await shuffleAttendees();
                     break;
                 case "ATTENDEES_UPDATED":
                     setAttendees(attendeesResult.attendees || []);
@@ -147,8 +187,7 @@ const ContentApp = () => {
                     const teamVal = selectedTeam.selectedTeam || "all";
                     setSelectedTeam(teamVal);
                     const filteredByTeam = attendeesResult.attendees
-                        ?.filter((a: Attendee) => a.team === teamVal 
-                                                || teamVal.toLowerCase() === "all") || [];
+                        ?.filter((a: Attendee) => isOnTeam(a, teamVal)) || [];
                     setAttendees(filteredByTeam);
                     break;
                 default:
@@ -159,7 +198,7 @@ const ContentApp = () => {
         return () => {
             chrome.runtime.onMessage.removeListener(listener);
         };
-    }, [attendees]);
+    }, []);
 
     useEffect(() => {
         (async () => {
@@ -167,27 +206,78 @@ const ContentApp = () => {
             const shuffledResult = await chrome.storage.local.get("shuffled");
             const clearedResult = await chrome.storage.local.get("cleared");
             const selectedTeamResult = await chrome.storage.local.get("selectedTeam");
-            const initTeam = selectedTeamResult.selectedTeam || "all";
+            const boardMappingsResult = await chrome.storage.local.get("boardMappings");
+
+            // Auto-select team based on current board URL
+            let initTeam = selectedTeamResult.selectedTeam || "all";
+            const currentUrl = window.location.href;
+            if (boardMappingsResult.boardMappings) {
+                let matched = false;
+                for (const [team, boardPath] of Object.entries(boardMappingsResult.boardMappings)) {
+                    if (currentUrl.includes(boardPath as string)) {
+                        initTeam = team;
+                        await chrome.storage.local.set({ selectedTeam: team });
+                        matched = true;
+                        break;
+                    }
+                }
+                // If we previously auto-selected a team but this board doesn't map,
+                // reset to "all" so a stale selectedTeam doesn't silently filter everyone out.
+                if (!matched && initTeam !== "all" && initTeam in boardMappingsResult.boardMappings) {
+                    initTeam = "all";
+                    await chrome.storage.local.set({ selectedTeam: "all" });
+                }
+            }
              
             setHidden(!enabledResult.enabled);
 
             const attendeesResult = await chrome.storage.local.get("attendees");
             let storageAttendees = attendeesResult.attendees;
             if (!storageAttendees) {
-                storageAttendees = [{
-                    id: "unassigned",
-                    name: "Unassigned",
-                    avatarUrl: "https://via.placeholder.com/48x48",
-                    satDown: false,
-                    hasLinger: false,
-                    excludeFromShuffle: false,
-                    team: ""
-                }];
-                await storeAttendees(storageAttendees);
+                // Load bundled defaults
+                try {
+                    const defaultsUrl = chrome.runtime.getURL("defaults.json");
+                    const resp = await fetch(defaultsUrl);
+                    const defaults = await resp.json();
+                    storageAttendees = defaults.attendees || [];
+                    await chrome.storage.local.set({ attendees: storageAttendees });
+                    // Persist teams so the popup dropdown has options on first install
+                    const seededTeams: string[] = [...new Set(
+                        (storageAttendees as Attendee[])
+                            .flatMap((a: Attendee) => getTeams(a))
+                            .filter((t: string) => t !== "")
+                    )];
+                    await chrome.storage.local.set({ teams: seededTeams });
+                    if (defaults.boardMappings) {
+                        await chrome.storage.local.set({ boardMappings: defaults.boardMappings });
+                        // Re-check board mapping with loaded data
+                        for (const [team, boardPath] of Object.entries(defaults.boardMappings)) {
+                            if (currentUrl.includes(boardPath as string)) {
+                                initTeam = team;
+                                await chrome.storage.local.set({ selectedTeam: team });
+                                break;
+                            }
+                        }
+                    }
+                    // Render the seeded list immediately so the panel isn't blank
+                    const seededFiltered = (storageAttendees as Attendee[])
+                        .filter((a: Attendee) => isOnTeam(a, initTeam));
+                    setAttendees(seededFiltered);
+                } catch (e) {
+                    storageAttendees = [{
+                        id: "unassigned",
+                        name: "Unassigned",
+                        avatarUrl: "https://via.placeholder.com/48x48",
+                        satDown: false,
+                        hasLinger: false,
+                        excludeFromShuffle: false,
+                        team: ""
+                    }];
+                    await storeAttendees(storageAttendees);
+                }
             } else {
                 const filteredAttendees = attendeesResult.attendees
-                    ?.filter((a: Attendee) => a.team === initTeam
-                                            || initTeam.toLowerCase() === "all") || [];
+                    ?.filter((a: Attendee) => isOnTeam(a, initTeam)) || [];
                 setAttendees(filteredAttendees);   
                 setTimeout(async () => {
                     let temp = storageAttendees.map((a: Attendee): Attendee => ({
@@ -196,7 +286,7 @@ const ContentApp = () => {
                             hasLinger: false
                         }));
                     if (shuffledResult.shuffled) {
-                        shuffleAttendees(temp);
+                        await shuffleAttendees();
                     }
                     if (clearedResult.cleared) {
                         setTimeout(() => {
@@ -207,6 +297,17 @@ const ContentApp = () => {
                     setActiveAttendeeId('');
                 }, 175);
             }
+
+            // Sync avatars from the board DOM after a delay to let Jira render
+            setTimeout(async () => {
+                await syncAvatarsFromDOM();
+                const refreshed = await chrome.storage.local.get("attendees");
+                if (refreshed.attendees) {
+                    const filteredRefreshed = refreshed.attendees
+                        ?.filter((a: Attendee) => isOnTeam(a, initTeam)) || [];
+                    setAttendees(filteredRefreshed);
+                }
+            }, 2000);
         })();
     }, []);
     

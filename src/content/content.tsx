@@ -7,10 +7,20 @@ import "./content.css";
     let root: ReactDOM.Root | null = null;
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+    const unmountIfOrphaned = () => {
+        // If our previous root's DOM node was destroyed by Jira's SPA,
+        // unmount it so its useEffect cleanups (listeners) run.
+        if (root && !document.getElementById("jira-standup")) {
+            try { root.unmount(); } catch (_) { /* noop */ }
+            root = null;
+        }
+    };
+
     const inject = (controls: Element) => {
         if (document.getElementById("jira-standup")) {
             return;
         }
+        unmountIfOrphaned();
         const rootElement = document.createElement("div");
         rootElement.id = "jira-standup";
         controls.insertAdjacentElement("afterend", rootElement);
@@ -27,6 +37,7 @@ import "./content.css";
             clearTimeout(debounceTimer);
         }
         debounceTimer = setTimeout(() => {
+            unmountIfOrphaned();
             const controlsSelector = `[data-testid="software-board.header.controls-bar"]`;
             if (!document.getElementById("jira-standup")) {
                 const controls = document.querySelector(controlsSelector);

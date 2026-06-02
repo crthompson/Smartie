@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Attendee, MessageTypes } from "../types";
+import { Attendee, MessageTypes, getTeams } from "../types";
 
 type EnabledProps = {
     checked: boolean
@@ -158,11 +158,21 @@ const PopupApp = () => {
             return;
         }
         const data = await file.text();
-        let attendees = JSON.parse(data);
-        if (!(attendees instanceof Array)) {
-            console.log("Attendees import must be an array of valid attendees");
+        let parsed = JSON.parse(data);
+        
+        // Support both formats: plain array or object with boardMappings + attendees
+        let attendees: any[];
+        let boardMappings: Record<string, string> | null = null;
+        if (parsed instanceof Array) {
+            attendees = parsed;
+        } else if (parsed.attendees instanceof Array) {
+            attendees = parsed.attendees;
+            boardMappings = parsed.boardMappings || null;
+        } else {
+            console.log("Import must be an array of attendees or an object with 'attendees' array");
             return;
         }
+
         const isValid = attendees.every(a => a.id && a.name && a.avatarUrl);
         if (!isValid) {
             console.log("Attendees import must be an array of attendee objects with id, name, and avatarUrl");
@@ -172,12 +182,16 @@ const PopupApp = () => {
             ...a,
             satDown: false,
             hasLinger: false,
+            excludeFromShuffle: a.excludeFromShuffle === true || a.excludeFromShuffle === "true",
             team: a.team
         }));
         chrome.storage.local.set({ attendees });
+        if (boardMappings) {
+            chrome.storage.local.set({ boardMappings });
+        }
         const teams: string[] = [...new Set((attendees as Attendee[])
-                                    .filter((a: Attendee) => a.team !== null && a.team !== undefined || a.team !== "")           
-                                    .map((a: Attendee) => a.team!))];
+                                    .flatMap((a: Attendee) => getTeams(a))
+                                    .filter(t => t !== ""))];
         setTeams(teams);
         chrome.storage.local.set({ teams });
         sendMessage({ type: "ATTENDEES_UPDATED" });
@@ -198,7 +212,7 @@ const PopupApp = () => {
             id: a.id,
             name: a.name,
             avatarUrl: a.avatarUrl,
-            excludeFromShuffle: a.excludeFromShuffle || "false",
+            excludeFromShuffle: !!a.excludeFromShuffle,
             team: a.team || ""
         }));
         const content = JSON.stringify(attendees, null, 2);

@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Attendee, MessageTypes, isOnTeam, getTeams } from "../types";
+import { clickQuickFilter } from "./clickQuickFilter";
+import { resetStandupHighlights } from "./resetStandupHighlights";
 
 const syncAvatarsFromDOM = async () => {
     const attendeesResult = await chrome.storage.local.get("attendees");
@@ -42,64 +44,6 @@ const ContentApp = () => {
     const [attendees, setAttendees] = useState<Attendee[]>([]);
     const [activeAttendeeId, setActiveAttendeeId] = useState<string>('');
     const [selectedTeam, setSelectedTeam] = useState<string>("none");
-
-    const clickQuickFilter = (name: string): Promise<boolean> => {
-        return new Promise((resolve) => {
-            const button = Array.from(document.querySelectorAll('button')).find(
-                b => b.textContent?.trim() === 'Quick filters'
-            ) as HTMLButtonElement | undefined;
-            if (!button) {
-                resolve(false);
-                return;
-            }
-            const target = name.toLowerCase();
-            let settled = false;
-            let observer: MutationObserver | null = null;
-            let timer: ReturnType<typeof setTimeout> | null = null;
-            const finish = (result: boolean) => {
-                if (settled) return;
-                settled = true;
-                if (observer) observer.disconnect();
-                if (timer) clearTimeout(timer);
-                // Don't manually toggle the button — react-select closes the dropdown after option click.
-                // If we somehow opened the dropdown but found no match, close it.
-                if (!result && button.getAttribute('aria-expanded') === 'true') {
-                    button.click();
-                }
-                resolve(result);
-            };
-
-            // Helper to try matching the currently-open options.
-            const tryMatch = (): boolean => {
-                const options = Array.from(document.querySelectorAll('[role="option"]'));
-                if (options.length === 0) return false;
-                const match = options.find(
-                    o => o.textContent?.trim().toLowerCase() === target
-                ) as HTMLElement | undefined;
-                if (match) {
-                    match.click();
-                    finish(true);
-                    return true;
-                }
-                // Options rendered but no match → not a quick-filter user
-                finish(false);
-                return true;
-            };
-
-            // If dropdown is already open (from a prior in-flight call's render), try immediately
-            if (button.getAttribute('aria-expanded') === 'true' && tryMatch()) {
-                return;
-            }
-
-            // Open the dropdown
-            button.click();
-            observer = new MutationObserver(() => {
-                tryMatch();
-            });
-            observer.observe(document.body, { childList: true, subtree: true });
-            timer = setTimeout(() => finish(false), 3000);
-        });
-    };
 
     const clickAttendee = async (attendeeId: string) => {
         if (!attendeeId) return;
@@ -348,11 +292,14 @@ const ContentApp = () => {
                     ?.filter((a: Attendee) => isOnTeam(a, initTeam)) || [];
                 setAttendees(filteredAttendees);   
                 setTimeout(async () => {
-                    let temp = storageAttendees.map((a: Attendee): Attendee => ({
-                            ...a,
-                            satDown: clearedResult.cleared ? false : a.satDown,
-                            hasLinger: false
-                        }));
+                    if (clearedResult.cleared) {
+                        // "Clear on refresh": reset standup highlights and PERSIST them so they
+                        // don't survive the reload, then drop the Jira board filter.
+                        const reset = resetStandupHighlights(storageAttendees);
+                        await storeAttendees(reset);
+                    } else {
+                        setAttendees(filteredAttendees);
+                    }
                     if (shuffledResult.shuffled) {
                         await shuffleAttendees();
                     }
@@ -361,7 +308,6 @@ const ContentApp = () => {
                             document.querySelector<HTMLElement>('[data-testid="filters.ui.filters.clear-button.ak-button"] button')?.click();
                         }, 100);
                     }
-                    setAttendees(filteredAttendees);   
                     setActiveAttendeeId('');
                 }, 175);
             }

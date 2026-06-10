@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "React-based Chrome Extension to manage Jira Standups",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "pretest": "tsc src/content/clickQuickFilter.ts src/content/resetStandupHighlights.ts src/content/quickFilterAppearance.ts --rootDir src --outDir test/.build --module commonjs --target es2019 --lib dom,es2019 --moduleResolution node --strict --esModuleInterop",
+    "test": "node test/clickQuickFilter.test.js",
     "build": "webpack",
     "start": "webpack --watch",
     "serve": "webpack serve"
@@ -22,6 +23,7 @@
     "copy-webpack-plugin": "^11.0.0",
     "css-loader": "^6.7.3",
     "file-loader": "^6.2.0",
+    "jsdom": "^29.1.1",
     "style-loader": "^3.3.1",
     "ts-loader": "^9.4.2",
     "typescript": "^4.9.5",

@@ -1,9 +1,13 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import ContentApp from "./ContentApp";
+import { applyQuickFilterAppearance } from "./quickFilterAppearance";
 import "./content.css";
 
 (async () => {
+    // Neutralize Jira's active-state highlight on the Quick filters control (CSS only).
+    applyQuickFilterAppearance();
+
     let root: ReactDOM.Root | null = null;
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 

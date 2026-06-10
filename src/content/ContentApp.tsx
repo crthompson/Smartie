@@ -43,8 +43,73 @@ const ContentApp = () => {
     const [activeAttendeeId, setActiveAttendeeId] = useState<string>('');
     const [selectedTeam, setSelectedTeam] = useState<string>("none");
 
-    const clickAttendee = (attendeeId: string) => {
+    const clickQuickFilter = (name: string): Promise<boolean> => {
+        return new Promise((resolve) => {
+            const button = Array.from(document.querySelectorAll('button')).find(
+                b => b.textContent?.trim() === 'Quick filters'
+            ) as HTMLButtonElement | undefined;
+            if (!button) {
+                resolve(false);
+                return;
+            }
+            const target = name.toLowerCase();
+            let settled = false;
+            let observer: MutationObserver | null = null;
+            let timer: ReturnType<typeof setTimeout> | null = null;
+            const finish = (result: boolean) => {
+                if (settled) return;
+                settled = true;
+                if (observer) observer.disconnect();
+                if (timer) clearTimeout(timer);
+                // Don't manually toggle the button — react-select closes the dropdown after option click.
+                // If we somehow opened the dropdown but found no match, close it.
+                if (!result && button.getAttribute('aria-expanded') === 'true') {
+                    button.click();
+                }
+                resolve(result);
+            };
+
+            // Helper to try matching the currently-open options.
+            const tryMatch = (): boolean => {
+                const options = Array.from(document.querySelectorAll('[role="option"]'));
+                if (options.length === 0) return false;
+                const match = options.find(
+                    o => o.textContent?.trim().toLowerCase() === target
+                ) as HTMLElement | undefined;
+                if (match) {
+                    match.click();
+                    finish(true);
+                    return true;
+                }
+                // Options rendered but no match → not a quick-filter user
+                finish(false);
+                return true;
+            };
+
+            // If dropdown is already open (from a prior in-flight call's render), try immediately
+            if (button.getAttribute('aria-expanded') === 'true' && tryMatch()) {
+                return;
+            }
+
+            // Open the dropdown
+            button.click();
+            observer = new MutationObserver(() => {
+                tryMatch();
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+            timer = setTimeout(() => finish(false), 3000);
+        });
+    };
+
+    const clickAttendee = async (attendeeId: string) => {
         if (!attendeeId) return;
+        // Prefer Jira's Quick Filter (matched by name) since it can be richer than the assignee filter.
+        const attendee = attendees.find(a => a.id === attendeeId);
+        if (attendee?.name) {
+            const matched = await clickQuickFilter(attendee.name);
+            if (matched) return;
+        }
+        // Fallback: existing assignee filter
         const label = document.querySelector(`label[for="assignee-${attendeeId}"]`) as HTMLElement;
         if (label) {
             label.click();
@@ -70,7 +135,7 @@ const ContentApp = () => {
         }
     };
 
-    const onAttendeeClick = (attendee: Attendee) => {
+    const onAttendeeClick = async (attendee: Attendee) => {
         const newAttendeeId = attendee.id;
         if (activeAttendeeId === newAttendeeId) {
             return;
@@ -84,8 +149,11 @@ const ContentApp = () => {
         });
 
         storeAttendees(temp);
-        clickAttendee(activeAttendeeId);
-        clickAttendee(newAttendeeId);
+        // Serialize so we don't race against ourselves opening/closing the Quick Filters dropdown.
+        // Small delay between calls lets react-select fully close the dropdown after option-click.
+        await clickAttendee(activeAttendeeId);
+        await new Promise(r => setTimeout(r, 150));
+        await clickAttendee(newAttendeeId);
         setActiveAttendeeId(newAttendeeId);
     };
 

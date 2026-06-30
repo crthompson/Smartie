@@ -264,6 +264,7 @@ const PopupApp = () => {
                 <button className="button" onClick={handleOnImport}>Import</button>
                 <button className="button" onClick={handleOnExport}>Export</button>
             </div>
+            <span className="version">v{chrome.runtime.getManifest().version}</span>
         </div>
     );
 };

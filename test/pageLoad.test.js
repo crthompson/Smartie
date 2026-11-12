@@ -10,6 +10,7 @@ const { JSDOM } = require('jsdom');
 const { whenPageReady } = require('./.build/content/whenPageReady.js');
 const { isBoardContentRendered, BOARD_CONTENT_SELECTORS } = require('./.build/content/boardContent.js');
 const { revealPanel } = require('./.build/content/revealPanel.js');
+const { findControlsBar, findPanelPlacement, boardInset } = require('./.build/content/findControlsBar.js');
 
 let failures = 0;
 function assert(cond, msg) {
@@ -108,9 +109,74 @@ async function revealPanelTests() {
     }
 }
 
+// Shape captured from the redesigned AUTH/301 board (Nov 2026): the controls bar has
+// no testid; it wraps the search/assignee/Filter group plus Custom filters and Group.
+function redesignedBoardHtml() {
+    return `
+      <div id="outer"><div id="bar">
+        <div id="left">
+          <div><div><div><div data-testid="filter-refinement.ui.search-field-container"><input data-testid="filter-refinement.ui.search-field"></div></div></div></div>
+          <fieldset data-testid="filters.ui.filters.assignee.stateless.assignee-filter"></fieldset>
+          <span><button data-testid="filter-refinement.ui.filter-popup.button">Filter</button></span>
+        </div>
+        <span><button aria-haspopup="true">Custom filters</button></span>
+        <span><button>Group</button></span>
+      </div><div id="headerRight"></div></div>`;
+}
+
+// Live layout: lca > [headerRow > (bar, headerRight)], [boardHost > board-wrapper]
+function redesignedPageHtml() {
+    return `<div id="lca"><div id="headerRow">${redesignedBoardHtml()}</div>
+      <div id="boardHost"><div><div data-testid="board.content.board-wrapper"></div></div></div></div>`;
+}
+
+async function findControlsBarTests() {
+    console.log('\nfindControlsBar tests');
+    {
+        const dom = new JSDOM(`<body><div data-testid="software-board.header.controls-bar" id="legacy"></div></body>`);
+        assert(findControlsBar(dom.window.document)?.id === 'legacy', 'uses the legacy controls-bar testid when present');
+    }
+    {
+        const dom = new JSDOM(`<body>${redesignedBoardHtml()}</body>`);
+        assert(findControlsBar(dom.window.document)?.id === 'bar', 'finds the redesigned bar that holds Custom filters and Group');
+    }
+    {
+        const dom = new JSDOM(`<body>${redesignedBoardHtml().replace('<div><div><div><div data-testid="filter-refinement.ui.search-field-container"><input data-testid="filter-refinement.ui.search-field"></div></div></div></div>', '')}</body>`);
+        assert(findControlsBar(dom.window.document)?.id === 'bar', 'falls back to the assignee fieldset when the search field is absent');
+    }
+    {
+        const dom = new JSDOM(`<body><div><button>Group</button></div></body>`);
+        assert(findControlsBar(dom.window.document) === null, 'returns null on a page without a board filter bar');
+    }
+    {
+        const dom = new JSDOM(`<body>${redesignedPageHtml()}</body>`);
+        const p = findPanelPlacement(dom.window.document);
+        assert(p?.target.id === 'boardHost' && p.position === 'afterbegin',
+            'places the panel at the top of the content area, not as a stray grid item');
+    }
+    {
+        const dom = new JSDOM(`<body>${redesignedBoardHtml()}</body>`);
+        const p = findPanelPlacement(dom.window.document);
+        assert(p?.target.id === 'bar' && p.position === 'afterend', 'falls back to after the bar when no board is rendered');
+    }
+    {
+        const dom = new JSDOM(`<body><div id="host"></div><div data-testid="board.content.cell"></div></body>`);
+        const d = dom.window.document;
+        const rect = left => () => ({ left, top: 0, right: 0, bottom: 0, width: 0, height: 0 });
+        const host = d.getElementById('host');
+        const cell = d.querySelector('[data-testid="board.content.cell"]');
+        host.getBoundingClientRect = rect(8);
+        cell.getBoundingClientRect = rect(30);
+        assert(boardInset(host, d) === 22, 'insets the panel to line up with the first board column');
+        cell.getBoundingClientRect = rect(-400);
+        assert(boardInset(host, d) === null, 'ignores the inset when the board is scrolled sideways');
+    }
+}
+
 whenPageReadyTests()
     .then(boardContentTests)
     .then(revealPanelTests)
+    .then(findControlsBarTests)
     .then(() => {
         if (failures > 0) { console.error(`\n${failures} assertion(s) failed`); process.exit(1); }
         console.log('\nAll page-load tests passed');

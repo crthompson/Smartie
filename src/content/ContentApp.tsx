@@ -1,7 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Attendee, MessageTypes, isOnTeam, getTeams } from "../types";
 import { clickQuickFilter } from "./clickQuickFilter";
 import { resetStandupHighlights } from "./resetStandupHighlights";
+
+// The redesigned board's "Clear filters" button may not carry the old testid.
+const clickClearFilters = () => {
+    const legacy = document.querySelector<HTMLElement>('[data-testid="filters.ui.filters.clear-button.ak-button"] button');
+    const byLabel = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+        .find(b => b.textContent?.trim() === 'Clear filters' && !b.closest('#jira-standup'));
+    (legacy ?? byLabel)?.click();
+};
 
 const syncAvatarsFromDOM = async () => {
     const attendeesResult = await chrome.storage.local.get("attendees");
@@ -45,12 +53,19 @@ const ContentApp = () => {
     const [activeAttendeeId, setActiveAttendeeId] = useState<string>('');
     const [selectedTeam, setSelectedTeam] = useState<string>("none");
 
-    const clickAttendee = async (attendeeId: string) => {
+    // Attendee clicks drive the same Jira dropdown, so run them strictly one at a time.
+    const opQueue = useRef<Promise<void>>(Promise.resolve());
+    const activeIdRef = useRef<string>('');
+
+    const clickAttendee = async (attendeeId: string, select: boolean) => {
         if (!attendeeId) return;
         // Prefer Jira's Quick Filter (matched by name) since it can be richer than the assignee filter.
         const attendee = attendees.find(a => a.id === attendeeId);
         if (attendee?.name) {
-            const matched = await clickQuickFilter(attendee.name);
+            const matched = await clickQuickFilter(attendee.name, {
+                select,
+                exclusiveAmong: attendees.map(a => a.name).filter(Boolean),
+            });
             if (matched) return;
         }
         // Fallback: existing assignee filter
@@ -79,9 +94,16 @@ const ContentApp = () => {
         }
     };
 
-    const onAttendeeClick = async (attendee: Attendee) => {
+    const onAttendeeClick = (attendee: Attendee) => {
+        opQueue.current = opQueue.current
+            .then(() => switchToAttendee(attendee))
+            .catch(e => console.error(`Smartie Standup: attendee switch failed: ${e}`));
+    };
+
+    const switchToAttendee = async (attendee: Attendee) => {
         const newAttendeeId = attendee.id;
-        if (activeAttendeeId === newAttendeeId) {
+        const previousId = activeIdRef.current;
+        if (previousId === newAttendeeId) {
             return;
         }
 
@@ -95,9 +117,12 @@ const ContentApp = () => {
         storeAttendees(temp);
         // Serialize so we don't race against ourselves opening/closing the Quick Filters dropdown.
         // Small delay between calls lets react-select fully close the dropdown after option-click.
-        await clickAttendee(activeAttendeeId);
+        await clickAttendee(previousId, false);
         await new Promise(r => setTimeout(r, 150));
-        await clickAttendee(newAttendeeId);
+        await clickAttendee(newAttendeeId, true);
+        // Let the dropdown finish closing before the next queued click opens it again.
+        await new Promise(r => setTimeout(r, 150));
+        activeIdRef.current = newAttendeeId;
         setActiveAttendeeId(newAttendeeId);
     };
 
@@ -153,7 +178,8 @@ const ContentApp = () => {
         }));
         
         await storeAttendees(temp);        
-        document.querySelector<HTMLElement>('[data-testid="filters.ui.filters.clear-button.ak-button"] button')?.click();
+        clickClearFilters();
+        activeIdRef.current = '';
         setActiveAttendeeId('');
     };
 
@@ -305,9 +331,10 @@ const ContentApp = () => {
                     }
                     if (clearedResult.cleared) {
                         setTimeout(() => {
-                            document.querySelector<HTMLElement>('[data-testid="filters.ui.filters.clear-button.ak-button"] button')?.click();
+                            clickClearFilters();
                         }, 100);
                     }
+                    activeIdRef.current = '';
                     setActiveAttendeeId('');
                 }, 175);
             }

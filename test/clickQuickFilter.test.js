@@ -36,9 +36,9 @@ function installDom() {
 // Builds a Jira-like Quick Filters control. The button toggles a menu of role="option"
 // elements that render asynchronously (like react-select), so the production code's
 // MutationObserver path is exercised.
-function setupBoard({ buttonText = 'Quick filters', optionNames = [], renderDelay = 5, includeButton = true } = {}) {
+function setupBoard({ buttonText = 'Quick filters', optionNames = [], renderDelay = 5, includeButton = true, multiSelect = false, checked = [] } = {}) {
     document.body.innerHTML = '';
-    const state = { clicked: [] };
+    const state = { clicked: [], checked: new Set(checked) };
     const menu = document.createElement('div');
     document.body.appendChild(menu);
     if (!includeButton) return { menu, btn: null, state };
@@ -61,8 +61,14 @@ function setupBoard({ buttonText = 'Quick filters', optionNames = [], renderDela
                     const o = document.createElement('div');
                     o.setAttribute('role', 'option');
                     o.textContent = n;
+                    if (multiSelect) o.setAttribute('aria-selected', String(state.checked.has(n)));
                     o.addEventListener('click', () => {
                         state.clicked.push(n);
+                        state.menuHiddenAtClick = menu.hasAttribute('data-smartie-qf-hidden');
+                        if (multiSelect) {
+                            if (state.checked.has(n)) state.checked.delete(n); else state.checked.add(n);
+                            o.setAttribute('aria-selected', String(state.checked.has(n)));
+                        }
                         // react-select does NOT close the menu on a programmatic option .click()
                         // (it only auto-closes on its own synthetic mouse events). Intentionally
                         // leave aria-expanded='true' and the options in place so the test exercises
@@ -80,6 +86,64 @@ function setupBoard({ buttonText = 'Quick filters', optionNames = [], renderDela
 
 async function run() {
     console.log('clickQuickFilter jsdom tests\n');
+
+    // 0) Jira's Nov 2026 redesign renamed the control to "Custom filters".
+    installDom();
+    {
+        console.log('Scenario 0: redesigned "Custom filters" control applies the filter');
+        const board = setupBoard({ buttonText: 'Custom filters', optionNames: ['Chad', 'Kyle'] });
+        const result = await clickQuickFilter('Kyle');
+        assert(result === true, 'finds the renamed "Custom filters" control');
+        assert(board.state.clicked.join(',') === 'Kyle', 'clicks the matching "Kyle" option');
+        assert(board.state.menuHiddenAtClick === true, 'hides the id-less popup while operating it (no flash)');
+        await sleep(200);
+        assert(!document.querySelector('[data-smartie-qf-hidden]'), 'un-hides the popup after the operation (no leak)');
+    }
+
+    // 0b) Multi-select regression: a missed toggle left Chad AND Kyle checked. Selecting
+    //     an attendee must uncheck other attendees and leave non-attendee filters alone.
+    installDom();
+    {
+        console.log('Scenario 0b: selecting an attendee clears stale attendee filters');
+        const board = setupBoard({ buttonText: 'Custom filters2', multiSelect: true,
+            optionNames: ['Chad', 'Kyle', 'Nicole', 'SF Case'], checked: ['Chad', 'Kyle', 'SF Case'] });
+        const result = await clickQuickFilter('Nicole', { select: true, exclusiveAmong: ['Chad', 'Kyle', 'Nicole'] });
+        assert(result === true, 'finds the attendee filter');
+        assert([...board.state.checked].sort().join(',') === 'Nicole,SF Case',
+            'leaves only the new attendee (plus non-attendee filters) checked');
+        await sleep(200);
+    }
+    installDom();
+    {
+        console.log('Scenario 0c: explicit select/deselect never toggles the wrong way');
+        const board = setupBoard({ buttonText: 'Custom filters1', multiSelect: true,
+            optionNames: ['Chad', 'Kyle'], checked: ['Kyle'] });
+        await clickQuickFilter('Chad', { select: false });
+        await sleep(200);
+        assert(board.state.clicked.length === 0, 'deselecting an already-unchecked filter clicks nothing');
+        await clickQuickFilter('Kyle', { select: true });
+        await sleep(200);
+        assert(board.state.clicked.length === 0 && board.state.checked.has('Kyle'),
+            'selecting an already-checked filter keeps it checked');
+    }
+
+    // 0d) Regression (right-click): an unrelated menu left on the page also exposes
+    //     role="option". It must not make a real attendee look like a non-match.
+    installDom();
+    {
+        console.log('Scenario 0d: stray options from another menu are ignored');
+        const board = setupBoard({ buttonText: 'Custom filters', optionNames: ['Chad', 'Kyle'] });
+        const stray = document.createElement('div');
+        stray.innerHTML = '<div role="option">Copy link</div><div role="option">Move to</div>';
+        document.body.appendChild(stray);
+        const pending = clickQuickFilter('Kyle');
+        // The real popup renders its shell (search box) before its options.
+        board.menu.appendChild(document.createElement('input'));
+        const result = await pending;
+        assert(result === true, 'still matches the attendee in the opened dropdown');
+        assert(board.state.clicked.join(',') === 'Kyle', 'clicks the attendee option, not a stray one');
+        await sleep(200);
+    }
 
     // 1) Regression: selected-state button text is "Quick filters1" (count badge).
     //    This is the exact bug — exact-equality matching used to fail here.

@@ -1,4 +1,6 @@
 #jira-standup {
+    position: relative;
+    z-index: 1;
     transition: opacity 220ms ease-in-out;
 }
 

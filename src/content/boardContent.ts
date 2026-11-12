@@ -16,6 +16,9 @@ export const BOARD_CONTENT_SELECTORS = [
     '[data-testid="software-board.board"]',
     '[data-testid^="platform-board-kit.ui.column"]',
     '[data-testid="platform-board-kit.ui.card.card"]',
+    // Nov 2026 board redesign
+    '[data-testid="board.content.board-wrapper"]',
+    '[data-testid="board.content.cell"]',
 ];
 
 export function isBoardContentRendered(doc: Document = document): boolean {

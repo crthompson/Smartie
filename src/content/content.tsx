@@ -5,6 +5,7 @@ import { applyQuickFilterAppearance } from "./quickFilterAppearance";
 import { whenPageReady } from "./whenPageReady";
 import { isBoardContentRendered } from "./boardContent";
 import { revealPanel } from "./revealPanel";
+import { findPanelPlacement, isPlaced, PanelPlacement, boardInset } from "./findControlsBar";
 import "./content.css";
 
 (async () => {
@@ -23,7 +24,7 @@ import "./content.css";
         }
     };
 
-    const inject = (controls: Element) => {
+    const inject = (placement: PanelPlacement) => {
         if (document.getElementById("jira-standup")) {
             return;
         }
@@ -33,7 +34,7 @@ import "./content.css";
         // Start hidden; revealPanel fades it in once the board content has rendered,
         // so a half-rendered board never flashes the panel.
         rootElement.classList.add("loading");
-        controls.insertAdjacentElement("afterend", rootElement);
+        placement.target.insertAdjacentElement(placement.position, rootElement);
         root = ReactDOM.createRoot(rootElement);
         root.render(
             <React.StrictMode>
@@ -51,14 +52,30 @@ import "./content.css";
         // gate (whenPageReady) is what actually prevents injecting into a stale paint.
         debounceTimer = setTimeout(() => {
             unmountIfOrphaned();
-            const controlsSelector = `[data-testid="software-board.header.controls-bar"]`;
-            if (!document.getElementById("jira-standup")) {
-                const controls = document.querySelector(controlsSelector);
-                if (controls) {
-                    inject(controls);
-                }
+            const existing = document.getElementById("jira-standup");
+            const placement = findPanelPlacement();
+            if (!placement) return;
+            if (!existing) {
+                inject(placement);
+            } else if (!isPlaced(existing, placement)) {
+                // Injected before the board rendered (fallback spot); move into place.
+                placement.target.insertAdjacentElement(placement.position, existing);
             }
+            alignToBoard();
         }, 100);
+    };
+
+    // Above the board, line the panel up with the first column instead of the content edge.
+    const alignToBoard = () => {
+        const host = document.getElementById("jira-standup");
+        if (!host) return;
+        const placement = findPanelPlacement();
+        if (placement?.position !== "afterbegin") {
+            host.style.paddingLeft = "";
+            return;
+        }
+        const inset = boardInset(host);
+        if (inset !== null) host.style.paddingLeft = `${inset}px`;
     };
 
     try {
@@ -79,6 +96,8 @@ import "./content.css";
 
         // Pages restored from the back/forward cache do not re-run the content
         // script and skip `load`; re-validate so a stale/missing panel is fixed.
+        window.addEventListener("resize", () => alignToBoard());
+
         window.addEventListener("pageshow", (e) => {
             if ((e as PageTransitionEvent).persisted) {
                 unmountIfOrphaned();

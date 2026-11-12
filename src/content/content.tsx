@@ -7,6 +7,9 @@ import { isBoardContentRendered } from "./boardContent";
 import { revealPanel } from "./revealPanel";
 import { findPanelPlacement, isPlaced, PanelPlacement, boardInset } from "./findControlsBar";
 import "./content.css";
+import { registerJiraDiscovery } from "./jiraDiscovery";
+
+registerJiraDiscovery();
 
 (async () => {
     // Neutralize Jira's active-state highlight on the Quick filters control (CSS only).

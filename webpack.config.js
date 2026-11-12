@@ -11,6 +11,7 @@ const config = {
   },
   entry: {
     popup: path.join(__dirname, "src/popup/popup.tsx"),
+    manage: path.join(__dirname, "src/manage/manage.tsx"),
     content: path.join(__dirname, "src/content/content.tsx"),
   },
   output: { path: path.join(__dirname, "extension"), filename: "[name].js" },
@@ -70,7 +71,7 @@ const config = {
   },
   plugins: [
     new CopyPlugin({
-      patterns: [{ from: "public", to: "." }],
+      patterns: [{ from: "public", to: "." }, { from: "LICENSE", to: "LICENSE", toType: "file" }],
     }),
   ],
 };

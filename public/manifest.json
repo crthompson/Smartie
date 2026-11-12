@@ -12,19 +12,16 @@
     "action": {
         "default_popup": "popup.html"
     },
+    "options_ui": {
+        "page": "manage.html",
+        "open_in_tab": true
+    },
     "content_scripts": [
         {
-            "matches": ["https://*.atlassian.net/jira/software/*"],
+            "matches": ["https://waystar.atlassian.net/jira/software/*"],
             "js": ["content.js"]
         }
     ],
-    "permissions": [
-        "storage"
-    ],
-    "web_accessible_resources": [
-        {
-            "resources": ["defaults.json"],
-            "matches": ["https://*.atlassian.net/*"]
-        }
-    ]
+    "permissions": ["storage"],
+    "host_permissions": ["https://waystar.atlassian.net/*"]
 }

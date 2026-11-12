@@ -1,362 +1,213 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Attendee, MessageTypes, isOnTeam, getTeams } from "../types";
+import { Attendee, MessageTypes, isOnTeam } from "../types";
+import { AvatarUpdateMap, readRoster, updateRuntime } from "../config/configStorage";
+import { loadConfiguration, getConfigurationTeams } from "../config/configStorage";
 import { clickQuickFilter } from "./clickQuickFilter";
-import { resetStandupHighlights } from "./resetStandupHighlights";
+import { createStandupSession, FilterTarget } from "./standupSession";
+import AttendeeAvatar from "../components/AttendeeAvatar";
 
-// The redesigned board's "Clear filters" button may not carry the old testid.
 const clickClearFilters = () => {
     const legacy = document.querySelector<HTMLElement>('[data-testid="filters.ui.filters.clear-button.ak-button"] button');
     const byLabel = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
-        .find(b => b.textContent?.trim() === 'Clear filters' && !b.closest('#jira-standup'));
+        .find(button => button.textContent?.trim() === "Clear filters" && !button.closest("#jira-standup"));
     (legacy ?? byLabel)?.click();
 };
 
-const syncAvatarsFromDOM = async () => {
-    const attendeesResult = await chrome.storage.local.get("attendees");
-    const storedAttendees: Attendee[] = attendeesResult.attendees;
-    if (!storedAttendees || storedAttendees.length === 0) return;
-
-    let updated = false;
-    const avatarMap = new Map<string, string>();
-
-    // Scrape visible filter bar avatars
-    document.querySelectorAll('label[data-testid="filters.ui.filters.assignee.stateless.avatar.assignee-filter-avatar"]').forEach(label => {
-        const forAttr = label.getAttribute('for');
-        if (forAttr && forAttr.startsWith('assignee-')) {
-            const accountId = forAttr.replace('assignee-', '');
-            const img = label.querySelector('img') as HTMLImageElement;
-            if (img && img.src) {
-                avatarMap.set(accountId, img.src);
-            }
-        }
-    });
-
-    // Update stored attendees with fresh avatar URLs
-    const updatedAttendees = storedAttendees.map(a => {
-        const freshUrl = avatarMap.get(a.id);
-        if (freshUrl && freshUrl !== a.avatarUrl) {
-            updated = true;
-            return { ...a, avatarUrl: freshUrl };
-        }
-        return a;
-    });
-
-    if (updated) {
-        await chrome.storage.local.set({ attendees: updatedAttendees });
-    }
+const unassignedAttendee: Attendee = {
+    id: "unassigned", name: "Unassigned", avatarUrl: "", satDown: false, hasLinger: false, excludeFromShuffle: false, team: "",
 };
 
 const ContentApp = () => {
     const [hidden, setHidden] = useState(true);
-    const [shuffling, setShuffling] = useState<boolean>(false);
+    const [shuffling, setShuffling] = useState(false);
     const [attendees, setAttendees] = useState<Attendee[]>([]);
-    const [activeAttendeeId, setActiveAttendeeId] = useState<string>('');
-    const [selectedTeam, setSelectedTeam] = useState<string>("none");
+    const [activeAttendeeId, setActiveAttendeeId] = useState("");
+    const [selectedTeam, setSelectedTeam] = useState("all");
+    const runtimeGenerationRef = useRef(0);
+    const sessionRef = useRef<ReturnType<typeof createStandupSession> | null>(null);
 
-    // Attendee clicks drive the same Jira dropdown, so run them strictly one at a time.
-    const opQueue = useRef<Promise<void>>(Promise.resolve());
-    const activeIdRef = useRef<string>('');
+    const refreshFromStorage = async () => {
+        const [roster, configuration, selectedResult, enabledResult, generationResult] = await Promise.all([
+            readRoster(chrome.storage.local), loadConfiguration(chrome.storage.local),
+            chrome.storage.local.get("selectedTeam"), chrome.storage.local.get("enabled"), chrome.storage.local.get("smartieRuntimeGeneration"),
+        ]);
+        const generation = typeof generationResult.smartieRuntimeGeneration === "number" ? generationResult.smartieRuntimeGeneration : 0;
+        if (generation >= runtimeGenerationRef.current) runtimeGenerationRef.current = generation;
+        const storedTeam = selectedResult.selectedTeam || "all";
+        const team = storedTeam === "all" || getConfigurationTeams(configuration).includes(storedTeam) ? storedTeam : "all";
+        if (team !== storedTeam) await chrome.storage.local.set({ selectedTeam: team });
+        setSelectedTeam(team);
+        setHidden(!enabledResult.enabled);
+        const visible = roster.filter(attendee => isOnTeam(attendee, team));
+        setAttendees(visible.length || roster.length ? visible : [unassignedAttendee]);
+        sessionRef.current?.rosterChanged(roster);
+        return { roster, team };
+    };
 
-    const clickAttendee = async (attendeeId: string, select: boolean) => {
+    const clickAttendee = async (target: FilterTarget, select: boolean, exclusiveNames: string[]) => {
+        const attendeeId = target.id;
         if (!attendeeId) return;
-        // Prefer Jira's Quick Filter (matched by name) since it can be richer than the assignee filter.
-        const attendee = attendees.find(a => a.id === attendeeId);
-        if (attendee?.name) {
-            const matched = await clickQuickFilter(attendee.name, {
-                select,
-                exclusiveAmong: attendees.map(a => a.name).filter(Boolean),
-            });
+        if (target.name) {
+            const matched = await clickQuickFilter(target.name, { select, exclusiveAmong: exclusiveNames });
             if (matched) return;
         }
-        // Fallback: existing assignee filter
-        const label = document.querySelector(`label[for="assignee-${attendeeId}"]`) as HTMLElement;
+        const label = document.querySelector(`label[for="assignee-${attendeeId}"]`) as HTMLElement | null;
         if (label) {
             label.click();
-        } else {
-            const showMore = document.querySelector('[data-testid="filters.ui.filters.assignee.stateless.show-more-button.assignee-filter-show-more"]') as HTMLElement;
-            if (showMore) {
-                showMore.click();
-                const observer = new MutationObserver(() => {
-                    const item = document.getElementById(attendeeId) as HTMLElement;
-                    if (item) {
-                        observer.disconnect();
-                        item.click();
-                        showMore.click();
-                    } else if (document.querySelector('[role="menuitemcheckbox"]')) {
-                        // Dropdown rendered but attendee not in it — close menu
-                        observer.disconnect();
-                        showMore.click();
-                    }
-                });
-                observer.observe(document.body, { childList: true, subtree: true });
-                setTimeout(() => observer.disconnect(), 3000);
-            }
-        }
-    };
-
-    const onAttendeeClick = (attendee: Attendee) => {
-        opQueue.current = opQueue.current
-            .then(() => switchToAttendee(attendee))
-            .catch(e => console.error(`Smartie Standup: attendee switch failed: ${e}`));
-    };
-
-    const switchToAttendee = async (attendee: Attendee) => {
-        const newAttendeeId = attendee.id;
-        const previousId = activeIdRef.current;
-        if (previousId === newAttendeeId) {
             return;
         }
-
-        const temp = attendees.map(a => {
-            if (a.id === newAttendeeId) {
-                a.satDown = true;
+        const showMore = document.querySelector('[data-testid="filters.ui.filters.assignee.stateless.show-more-button.assignee-filter-show-more"]') as HTMLElement | null;
+        if (!showMore) return;
+        showMore.click();
+        const observer = new MutationObserver(() => {
+            const item = document.getElementById(attendeeId) as HTMLElement | null;
+            if (item) {
+                observer.disconnect();
+                item.click();
+                showMore.click();
+            } else if (document.querySelector('[role="menuitemcheckbox"]')) {
+                observer.disconnect();
+                showMore.click();
             }
-            return a;
         });
-
-        storeAttendees(temp);
-        // Serialize so we don't race against ourselves opening/closing the Quick Filters dropdown.
-        // Small delay between calls lets react-select fully close the dropdown after option-click.
-        await clickAttendee(previousId, false);
-        await new Promise(r => setTimeout(r, 150));
-        await clickAttendee(newAttendeeId, true);
-        // Let the dropdown finish closing before the next queued click opens it again.
-        await new Promise(r => setTimeout(r, 150));
-        activeIdRef.current = newAttendeeId;
-        setActiveAttendeeId(newAttendeeId);
+        observer.observe(document.body, { childList: true, subtree: true });
+        setTimeout(() => observer.disconnect(), 3000);
     };
 
-    const onAttendeeRightClick = (e: React.MouseEvent, attendee: Attendee) => {
-        e.preventDefault();
-        const temp = attendees.map(a => {
-            if (a.id === attendee.id) {
-                a.hasLinger = !a.hasLinger;
-            }
-            return a;
+    if (!sessionRef.current) {
+        sessionRef.current = createStandupSession({
+            getGeneration: () => runtimeGenerationRef.current,
+            markSatDown: async (id, generation) => {
+                const applied = await updateRuntime(chrome.storage.local, { [id]: { satDown: true } }, undefined, undefined, generation);
+                if (!applied) return null;
+                const { roster } = await refreshFromStorage();
+                return roster;
+            },
+            applyFilter: clickAttendee,
+            delay: ms => new Promise(resolve => setTimeout(resolve, ms)),
+            onActiveChanged: setActiveAttendeeId,
         });
+    }
 
-        storeAttendees(temp);
+    const onAttendeeClick = (attendee: Attendee) => sessionRef.current?.switchTo(attendee);
+
+    const onAttendeeRightClick = async (event: React.MouseEvent, attendee: Attendee) => {
+        event.preventDefault();
+        const generation = runtimeGenerationRef.current;
+        await updateRuntime(chrome.storage.local, { [attendee.id]: { hasLinger: !attendee.hasLinger } }, undefined, undefined, generation);
+        await refreshFromStorage();
     };
 
-    const shuffleAttendees = async (_ignored?: Attendee[]) => {
+    const shuffleAttendees = async () => {
         setShuffling(true);
-        // Always operate on the FULL list from storage, never the filtered in-memory view
-        const full = await chrome.storage.local.get("attendees");
-        const fullList: Attendee[] = full.attendees || [];
+        const generation = runtimeGenerationRef.current;
+        const roster = await readRoster(chrome.storage.local);
         setTimeout(async () => {
-            const temp = fullList.filter(a => !a.excludeFromShuffle).slice();
-            for (let i = temp.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [temp[i], temp[j]] = [temp[j], temp[i]];
+            const movable = roster.filter(attendee => !attendee.excludeFromShuffle).slice();
+            for (let index = movable.length - 1; index > 0; index--) {
+                const next = Math.floor(Math.random() * (index + 1));
+                [movable[index], movable[next]] = [movable[next], movable[index]];
             }
-            await storeAttendees(temp.concat(fullList.filter(a => a.excludeFromShuffle)));
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    setShuffling(false);
-                });
-            });
+            const order = movable.concat(roster.filter(attendee => attendee.excludeFromShuffle)).map(attendee => attendee.id);
+            await updateRuntime(chrome.storage.local, {}, order, undefined, generation);
+            await refreshFromStorage();
+            requestAnimationFrame(() => requestAnimationFrame(() => setShuffling(false)));
         }, 175);
     };
 
-    const storeAttendees = async (fullAttendees: Attendee[]) => {
-        const selectedTeam = await chrome.storage.local.get("selectedTeam");
-        const teamValue = selectedTeam.selectedTeam || "all";
-        const filteredAttendees = fullAttendees
-            ?.filter((a: Attendee) => isOnTeam(a, teamValue)) || [];
-        setAttendees(filteredAttendees);
-        await chrome.storage.local.set({ attendees: fullAttendees });
-    };
-
-    const clear = async (_ignored?: Attendee[]) => {
-        // Always operate on the FULL list from storage
-        const full = await chrome.storage.local.get("attendees");
-        const fullList: Attendee[] = full.attendees || [];
-        const temp = fullList.map(a => ({
-            ...a,
-            satDown: false,
-            hasLinger: false
-        }));
-        
-        await storeAttendees(temp);        
+    const clear = async () => {
+        const generation = runtimeGenerationRef.current;
+        const roster = await readRoster(chrome.storage.local);
+        const reset = Object.fromEntries(roster.map(attendee => [attendee.id, { satDown: false, hasLinger: false }]));
+        await updateRuntime(chrome.storage.local, reset, undefined, undefined, generation);
+        await refreshFromStorage();
         clickClearFilters();
-        activeIdRef.current = '';
-        setActiveAttendeeId('');
+                sessionRef.current?.reset();
     };
 
-    const attendeesMarkup = attendees.map(a => {
-        const hasSatDown = a.satDown ? "satDown" : "";
-        const hasLinger = a.hasLinger ? "hasLinger" : "";
-
-        return (
-            <li key={a.id} className={`${hasSatDown} ${hasLinger}`} onClick={() => onAttendeeClick(a)} onContextMenu={(e) => onAttendeeRightClick(e, a)}>
-                <img src={a.avatarUrl} className="avatar" />
-                <span className="name">{a.name}</span>
-            </li>
-        );
-    });
+    const syncAvatarsFromDOM = async () => {
+        const configuration = await loadConfiguration(chrome.storage.local);
+        const attendeesById = new Map(configuration.attendees.map(attendee => [attendee.id, attendee]));
+        const avatarMap: AvatarUpdateMap = {};
+        document.querySelectorAll('label[data-testid="filters.ui.filters.assignee.stateless.avatar.assignee-filter-avatar"]').forEach(label => {
+            const forValue = label.getAttribute("for");
+            const image = label.querySelector("img") as HTMLImageElement | null;
+            if (forValue?.startsWith("assignee-") && image?.src) {
+                const id = forValue.slice("assignee-".length);
+                const attendee = attendeesById.get(id);
+                if (attendee) avatarMap[id] = { url: image.src, baseAvatar: attendee.avatarUrl || "" };
+            }
+        });
+        if (Object.keys(avatarMap).length) {
+            await updateRuntime(chrome.storage.local, {}, undefined, avatarMap, runtimeGenerationRef.current);
+            await refreshFromStorage();
+        }
+    };
 
     useEffect(() => {
         const listener = (changes: { [key: string]: chrome.storage.StorageChange }) => {
-            if (changes.enabled) {
-                setHidden(!changes.enabled.newValue);
+            if (changes.enabled) setHidden(!changes.enabled.newValue);
+            if (changes.smartieConfiguration || changes.attendees || changes.boardMappings || changes.selectedTeam ||
+                changes.smartieAttendeeRuntime || changes.smartieAttendeeOrder || changes.smartieAvatarOverrides) {
+                void refreshFromStorage().catch(error => console.error("Smartie Standup: roster refresh failed", error));
             }
         };
         chrome.storage.onChanged.addListener(listener);
-        return () => {
-            chrome.storage.onChanged.removeListener(listener);
-        };
+        return () => chrome.storage.onChanged.removeListener(listener);
     }, []);
 
     useEffect(() => {
-        const listener = async (message: MessageTypes) => {
-            const attendeesResult = await chrome.storage.local.get("attendees");
-            switch (message.type) {
-                case "CLEAR":
-                    await clear();
-                    break;
-                case "SHUFFLE":
-                    await shuffleAttendees();
-                    break;
-                case "ATTENDEES_UPDATED":
-                    setAttendees(attendeesResult.attendees || []);
-                    break;
-                case "TEAM_CHANGED":
-                    const selectedTeam = await chrome.storage.local.get("selectedTeam");
-                    const teamVal = selectedTeam.selectedTeam || "all";
-                    setSelectedTeam(teamVal);
-                    const filteredByTeam = attendeesResult.attendees
-                        ?.filter((a: Attendee) => isOnTeam(a, teamVal)) || [];
-                    setAttendees(filteredByTeam);
-                    break;
-                default:
-                    break;
-            }
+        const listener = (message: MessageTypes) => {
+            if (message.type === "CLEAR") void clear();
+            else if (message.type === "SHUFFLE") void shuffleAttendees();
+            else if (message.type === "TEAM_CHANGED" || message.type === "ATTENDEES_UPDATED") void refreshFromStorage();
         };
         chrome.runtime.onMessage.addListener(listener);
-        return () => {
-            chrome.runtime.onMessage.removeListener(listener);
-        };
+        return () => chrome.runtime.onMessage.removeListener(listener);
     }, []);
 
     useEffect(() => {
+        let alive = true;
         (async () => {
-            const enabledResult = await chrome.storage.local.get("enabled");
-            const shuffledResult = await chrome.storage.local.get("shuffled");
-            const clearedResult = await chrome.storage.local.get("cleared");
-            const selectedTeamResult = await chrome.storage.local.get("selectedTeam");
-            const boardMappingsResult = await chrome.storage.local.get("boardMappings");
-
-            // Auto-select team based on current board URL
-            let initTeam = selectedTeamResult.selectedTeam || "all";
-            const currentUrl = window.location.href;
-            if (boardMappingsResult.boardMappings) {
-                let matched = false;
-                for (const [team, boardPath] of Object.entries(boardMappingsResult.boardMappings)) {
-                    if (currentUrl.includes(boardPath as string)) {
-                        initTeam = team;
-                        await chrome.storage.local.set({ selectedTeam: team });
-                        matched = true;
-                        break;
-                    }
-                }
-                // If we previously auto-selected a team but this board doesn't map,
-                // reset to "all" so a stale selectedTeam doesn't silently filter everyone out.
-                if (!matched && initTeam !== "all" && initTeam in boardMappingsResult.boardMappings) {
-                    initTeam = "all";
-                    await chrome.storage.local.set({ selectedTeam: "all" });
+            const [configuration, selectedResult, enabledResult, shuffledResult, clearedResult] = await Promise.all([
+                loadConfiguration(chrome.storage.local), chrome.storage.local.get("selectedTeam"),
+                chrome.storage.local.get("enabled"), chrome.storage.local.get("shuffled"), chrome.storage.local.get("cleared"),
+            ]);
+            let initialTeam = selectedResult.selectedTeam || "all";
+            let matched = false;
+            for (const [team, boardPath] of Object.entries(configuration.boardMappings)) {
+                if (window.location.href.includes(boardPath)) {
+                    initialTeam = team;
+                    matched = true;
+                    break;
                 }
             }
-             
-            setHidden(!enabledResult.enabled);
-
-            const attendeesResult = await chrome.storage.local.get("attendees");
-            let storageAttendees = attendeesResult.attendees;
-            if (!storageAttendees) {
-                // Load bundled defaults
-                try {
-                    const defaultsUrl = chrome.runtime.getURL("defaults.json");
-                    const resp = await fetch(defaultsUrl);
-                    const defaults = await resp.json();
-                    storageAttendees = defaults.attendees || [];
-                    await chrome.storage.local.set({ attendees: storageAttendees });
-                    // Persist teams so the popup dropdown has options on first install
-                    const seededTeams: string[] = [...new Set(
-                        (storageAttendees as Attendee[])
-                            .flatMap((a: Attendee) => getTeams(a))
-                            .filter((t: string) => t !== "")
-                    )];
-                    await chrome.storage.local.set({ teams: seededTeams });
-                    if (defaults.boardMappings) {
-                        await chrome.storage.local.set({ boardMappings: defaults.boardMappings });
-                        // Re-check board mapping with loaded data
-                        for (const [team, boardPath] of Object.entries(defaults.boardMappings)) {
-                            if (currentUrl.includes(boardPath as string)) {
-                                initTeam = team;
-                                await chrome.storage.local.set({ selectedTeam: team });
-                                break;
-                            }
-                        }
-                    }
-                    // Render the seeded list immediately so the panel isn't blank
-                    const seededFiltered = (storageAttendees as Attendee[])
-                        .filter((a: Attendee) => isOnTeam(a, initTeam));
-                    setAttendees(seededFiltered);
-                } catch (e) {
-                    storageAttendees = [{
-                        id: "unassigned",
-                        name: "Unassigned",
-                        avatarUrl: "https://via.placeholder.com/48x48",
-                        satDown: false,
-                        hasLinger: false,
-                        excludeFromShuffle: false,
-                        team: ""
-                    }];
-                    await storeAttendees(storageAttendees);
-                }
-            } else {
-                const filteredAttendees = attendeesResult.attendees
-                    ?.filter((a: Attendee) => isOnTeam(a, initTeam)) || [];
-                setAttendees(filteredAttendees);   
-                setTimeout(async () => {
-                    if (clearedResult.cleared) {
-                        // "Clear on refresh": reset standup highlights and PERSIST them so they
-                        // don't survive the reload, then drop the Jira board filter.
-                        const reset = resetStandupHighlights(storageAttendees);
-                        await storeAttendees(reset);
-                    } else {
-                        setAttendees(filteredAttendees);
-                    }
-                    if (shuffledResult.shuffled) {
-                        await shuffleAttendees();
-                    }
-                    if (clearedResult.cleared) {
-                        setTimeout(() => {
-                            clickClearFilters();
-                        }, 100);
-                    }
-                    activeIdRef.current = '';
-                    setActiveAttendeeId('');
-                }, 175);
+            if (!matched && initialTeam !== "all" && Object.prototype.hasOwnProperty.call(configuration.boardMappings, initialTeam)) initialTeam = "all";
+            if (initialTeam !== selectedResult.selectedTeam) await chrome.storage.local.set({ selectedTeam: initialTeam });
+            if (alive) await refreshFromStorage();
+            if (clearedResult.cleared) {
+                const roster = await readRoster(chrome.storage.local);
+                await updateRuntime(chrome.storage.local, Object.fromEntries(roster.map(person => [person.id, { satDown: false, hasLinger: false }])), undefined, undefined, runtimeGenerationRef.current);
+                clickClearFilters();
             }
-
-            // Sync avatars from the board DOM after a delay to let Jira render
-            setTimeout(async () => {
-                await syncAvatarsFromDOM();
-                const refreshed = await chrome.storage.local.get("attendees");
-                if (refreshed.attendees) {
-                    const filteredRefreshed = refreshed.attendees
-                        ?.filter((a: Attendee) => isOnTeam(a, initTeam)) || [];
-                    setAttendees(filteredRefreshed);
-                }
-            }, 2000);
-        })();
+            if (shuffledResult.shuffled) await shuffleAttendees();
+                        sessionRef.current?.reset();
+            setTimeout(() => { if (alive) void syncAvatarsFromDOM(); }, 2000);
+        })().catch(error => console.error("Smartie Standup: initialization failed", error));
+        return () => { alive = false; };
     }, []);
-    
-    return (
-        <div className={hidden ? "container hidden" : "container"}>
-            <ul className={shuffling ? "group shuffling" : "group"}>{attendeesMarkup}</ul>
-        </div>
-    );
+
+    const attendeeMarkup = attendees.map(attendee => (
+        <li key={attendee.id} className={`${attendee.satDown ? "satDown" : ""} ${attendee.hasLinger ? "hasLinger" : ""} ${activeAttendeeId === attendee.id ? "active" : ""}`}
+            onClick={() => onAttendeeClick(attendee)} onContextMenu={event => void onAttendeeRightClick(event, attendee)}>
+            <AttendeeAvatar name={attendee.name} url={attendee.avatarUrl} className="avatar" />
+            <span className="name">{attendee.name}</span>
+        </li>
+    ));
+
+    return <div className={hidden ? "container hidden" : "container"} data-selected-team={selectedTeam}>
+        <ul className={shuffling ? "group shuffling" : "group"}>{attendeeMarkup}</ul>
+    </div>;
 };
 
-export default ContentApp
+export default ContentApp;
